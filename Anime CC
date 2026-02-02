@@ -89,6 +89,44 @@ player.CharacterAdded:Connect(function(char)
 end)
 
 --========================================================
+-- ANTI-AFK TOGGLE
+--========================================================
+local antiAfkEnabled = false
+
+PlayerTab:CreateToggle({
+	Name = "Anti AFK",
+	CurrentValue = false,
+	Flag = "AntiAFK",
+	Callback = function(Value)
+		antiAfkEnabled = Value
+	end
+})
+
+-- Anti-AFK handler
+local Players = game:GetService("Players")
+local VirtualUser = game:GetService("VirtualUser")
+local RunService = game:GetService("RunService")
+local player = Players.LocalPlayer
+
+-- Connect Idled event
+player.Idled:Connect(function()
+	if not antiAfkEnabled then return end
+	VirtualUser:CaptureController()
+	VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+	task.wait(0.5)
+	VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+end)
+
+-- Optional tiny nudge every 60s (keeps AFK detection off)
+task.spawn(function()
+	while task.wait(60) do
+		if not antiAfkEnabled then continue end
+		RunService.RenderStepped:Wait()
+	end
+end)
+
+
+--========================================================
 -- GAME TAB
 --========================================================
 local GameTab = Window:CreateTab("Game", 4483362458)
@@ -285,3 +323,97 @@ task.spawn(function()
 		end
 	end
 end)
+
+--========================================================
+-- AUTO GRADING TAB (FIXED DROPDOWN CALLBACK)
+--========================================================
+local AutoGradeTab = Window:CreateTab("Auto Grading", 4483362458)
+AutoGradeTab:CreateSection("Card Grading Automation")
+
+-- Services
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GradeRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Grade")
+
+-- State
+local autoGradeEnabled = false
+local selectedCharacter = nil
+local lastDropdownSelection = nil
+local GRADE_DELAY = 0.05
+
+-- Character data
+local CharacterCategories = {
+	["One Piece"] = {"Luffy","Nami","Chopper","Usopp","Robin","Franky","Jimbei","Sanji","Zoro"},
+	["Naruto"] = {"Naruto","Sakura","Shikamaru","Hinata","Rock Lee","Gaara","Sasuke","Kakashi","Minato"},
+	["Bleach"] = {"Ichigo","Kon","Orihime","Chad","Ury","Rukia","Renji","Kenpachi","Urahara"},
+	["Demon Slayer"] = {"Tanjiro","Nezuko","Inosuke","Zenitsu","Rengoku","Mitsuri","Giyu","Obanai","Sanemi"},
+	["Jujutsu Kaisen"] = {"Itadori","Nobara","Megumi","Toge","Maki","Todo","Yuta","Gojo","Sukuna"},
+	["Dragon Ball"] = {"Goku","Vegeta","Krillin","Piccolo","Trunks","Gohan","Goku Black","Broly","Beerus"},
+	["Fire Force"] = {"Shinra","Iris","Tamaki","Obi","Hibana","Arthur","Sho","Benimaru"},
+	["One Punch Man"] = {"Saitama","King","Fubuki","Sonic","Child Emperor","Genos","Bang","Atomic Samurai","Tatsumaki"},
+	["Hunter x Hunter"] = {"Gon","Leorio","Shizuku","Kurapike","Kite","Killua","Hisoka","Neferpitou","Netero"},
+	["Solo Leveling"] = {"Sung Jinwoo","Cha Hae-In","Tank","Baek Yoonho","Choi Jong-In","Metus","Go Gunhee","Beru","Igris"},
+	["Attack on Titan"] = {"Eren","Sasha","Armin","Reiner","Annie","Hange","Mikasa","Levi","Historia"},
+	["Chainsaw Man"] = {"Denji","Kobeni","Himeno","Aki","Power","Galgali","Angel Devil","Reze","Makima"},
+	["Haikyuu"] = {"Kageyama","Nishinoya","Aone","Kuroo","Bokuto","Miya Twins","Oikawa","Ushijima"},
+	["Blue Lock"] = {"Isagi","Bachira","Chigiri","Kunigami","Nagi","Barou","Shidou","Rin","Itoshi Sae"},
+	["Black Clover"] = {"Asta","Yuno","Noelle","Luck","William","Nacht","Mereoleona","Yami","Julius"},
+	["Tokyo Ghoul"] = {"Ken Kaneki","Touka Kirishima","Hinami Fueguchi","Shuu Tsukiyama","Kishou Arima","Koutarou Amon","Rize Kamishiro","Eto Yoshimura","Kishou Arima (Final)"}
+}
+
+-- Category display order
+local CategoryOrder = {
+	"One Piece","Naruto","Bleach","Demon Slayer","Jujutsu Kaisen",
+	"Dragon Ball","Fire Force","One Punch Man","Hunter x Hunter",
+	"Solo Leveling","Attack on Titan","Chainsaw Man","Haikyuu",
+	"Blue Lock","Black Clover","Tokyo Ghoul"
+}
+
+-- Auto Grade toggle
+AutoGradeTab:CreateToggle({
+	Name = "Auto Grade",
+	CurrentValue = false,
+	Flag = "AutoGradeToggle",
+	Callback = function(Value)
+		autoGradeEnabled = Value
+		-- Refresh selected character when toggling on
+		if Value and lastDropdownSelection then
+			selectedCharacter = lastDropdownSelection
+		end
+	end
+})
+
+-- Dropdowns (fixed to always update selectedCharacter)
+for _, categoryName in ipairs(CategoryOrder) do
+	local characterList = CharacterCategories[categoryName]
+	if not characterList then continue end
+
+	AutoGradeTab:CreateDropdown({
+		Name = categoryName,
+		Options = characterList,
+		CurrentOption = nil,
+		Flag = "AutoGrade_" .. categoryName,
+		Callback = function(Option)
+			-- Force selection even if same value is reselected
+			if typeof(Option) == "table" then
+				selectedCharacter = Option[1]
+			else
+				selectedCharacter = Option
+			end
+			lastDropdownSelection = selectedCharacter
+		end
+	})
+end
+
+-- Auto Grade loop (fires correctly every tick)
+task.spawn(function()
+	while task.wait(GRADE_DELAY) do
+		if not autoGradeEnabled then continue end
+		if not selectedCharacter then continue end
+		if typeof(selectedCharacter) ~= "string" then continue end
+
+		local args = {"Roll", selectedCharacter}
+		GradeRemote:FireServer(unpack(args))
+	end
+end)
+
+
