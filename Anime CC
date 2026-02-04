@@ -454,17 +454,46 @@ for mutation, _ in pairs(mutationFilters) do
     })
 end
 
--- Restore saved toggle states AFTER all toggles are created and Rayfield initialized
+-- Restore Auto Farm toggle
+task.defer(function()
+    local flag = Rayfield.Flags["AutoFarmPacks"]
+    if flag and flag.CurrentValue ~= nil then
+        autoFarmPacksEnabled = flag.CurrentValue
+        flag:Set(flag.CurrentValue)
+        print("[AutoFarm] Restored Auto Farm:", autoFarmPacksEnabled)
+    end
+end)
+
+-- Restore pack toggles
+task.defer(function()
+    for packName, _ in pairs(selectedPacks) do
+        local flag = Rayfield.Flags["Pack_" .. packName]
+        if flag and flag.CurrentValue ~= nil then
+            selectedPacks[packName] = flag.CurrentValue
+            flag:Set(flag.CurrentValue)
+            print("[AutoFarm] Restored pack:", packName, flag.CurrentValue)
+        end
+    end
+end)
+
+-- Restore mutation toggles
 task.defer(function()
     for mutation, _ in pairs(mutationFilters) do
         local flag = Rayfield.Flags["Mutation_" .. mutation]
         if flag and flag.CurrentValue ~= nil then
             mutationFilters[mutation] = flag.CurrentValue
-            flag:Set(flag.CurrentValue) -- make sure the toggle itself updates visually
+            flag:Set(flag.CurrentValue)
             print("[Mutation] Restored", mutation, flag.CurrentValue)
         end
     end
 end)
+
+task.defer(function()
+    if autoFarmPacksEnabled then
+        print("[AutoFarm] Auto Farm restarting after teleport...")
+    end
+end)
+
 
 
 --========================================================
