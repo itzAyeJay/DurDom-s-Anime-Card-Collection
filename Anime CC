@@ -246,85 +246,189 @@ task.spawn(function()
 end)
 
 
+
 --========================================================
--- AUTO FARMING TAB
+-- AUTO FARMING TAB (WORKING)
 --========================================================
 local AutoFarmTab = Window:CreateTab("Auto Farming", 4483362458)
-AutoFarmTab:CreateSection("Pack Automation. (NOT WORKING YET)")
+AutoFarmTab:CreateSection("Pack Automation")
 
+-- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
--- Main toggle
+local player = Players.LocalPlayer
+local CardRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Card")
+
+-- State
 local autoFarmPacksEnabled = false
-
--- Stores which packs are checked
 local selectedPacks = {}
 
 --========================================================
--- AUTO FARM PACKS TOGGLE
+-- FIND PLAYER PLOT
+--========================================================
+local function getPlayerPlot()
+	local plots = workspace:FindFirstChild("Plots")
+	if not plots then return nil end
+
+	for i = 1, 6 do
+		local plot = plots:FindFirstChild(tostring(i))
+		if plot then
+			local display =
+				plot:FindFirstChild("Map")
+				and plot.Map:FindFirstChild("Display")
+				and plot.Map.Display:FindFirstChild("Top")
+				and plot.Map.Display.Top:FindFirstChild("Gui")
+				and plot.Map.Display.Top.Gui:FindFirstChild("Display")
+				and plot.Map.Display.Top.Gui.Display:FindFirstChild("Display")
+
+			if display and typeof(display.Text) == "string" then
+				local textLower = string.lower(display.Text)
+				local playerLower = string.lower(player.Name)
+				if string.find(textLower, playerLower, 1, true) then
+					print("[AutoFarm] Detected player plot:", i, "Text:", display.Text)
+					return i
+				end
+			end
+		end
+	end
+
+	return nil
+end
+
+--========================================================
+-- AUTO FARM TOGGLE
 --========================================================
 AutoFarmTab:CreateToggle({
 	Name = "Auto Farm Packs",
 	CurrentValue = false,
 	Flag = "AutoFarmPacks",
-	Callback = function(Value)
-		autoFarmPacksEnabled = Value
+	Callback = function(v)
+		autoFarmPacksEnabled = v
 	end
 })
 
 --========================================================
--- PACK CHECKBOX LIST
+-- PACK FILTER TOGGLES
 --========================================================
 local packsFolder =
 	ReplicatedStorage:FindFirstChild("Assets")
 	and ReplicatedStorage.Assets:FindFirstChild("Packs")
 
 if packsFolder then
-	for _, packModel in ipairs(packsFolder:GetChildren()) do
-		if packModel:IsA("Model") then
-			selectedPacks[packModel.Name] = false
+	for _, pack in ipairs(packsFolder:GetChildren()) do
+		if pack:IsA("Model") then
+			selectedPacks[pack.Name] = false
 
 			AutoFarmTab:CreateToggle({
-				Name = packModel.Name,
+				Name = pack.Name,
 				CurrentValue = false,
-				Flag = "Pack_" .. packModel.Name,
-				Callback = function(Value)
-					selectedPacks[packModel.Name] = Value
+				Callback = function(v)
+					selectedPacks[pack.Name] = v
 				end
 			})
 		end
 	end
-else
-	AutoFarmTab:CreateLabel("⚠ Packs folder not found")
 end
 
 --========================================================
--- PACK PURCHASE HANDLER (PLACEHOLDER)
+-- MUTATION CHECK
 --========================================================
-local function buyPack(packName)
-	-- 🔧 THIS IS WHERE WE WILL HOOK THE REAL REMOTE
-	-- Example (NOT FINAL):
-	-- ReplicatedStorage.Remotes.BuyPack:FireServer(packName)
+local function mutationPasses(packModel)
+	-- No mutation filters → allow all
+	if not (_G.Gold or _G.Emerald or _G.Void or _G.Diamond or _G.Rainbow) then
+		return true
+	end
 
-	print("[AutoFarm] Attempting to buy pack:", packName)
+	for mutationName, toggle in pairs({
+		Gold = _G.Gold,
+		Emerald = _G.Emerald,
+		Void = _G.Void,
+		Diamond = _G.Diamond,
+		Rainbow = _G.Rainbow
+	}) do
+		if toggle and packModel:FindFirstChild(mutationName) then
+			return true
+		end
+	end
+
+	return false
 end
 
 --========================================================
--- AUTO BUY LOOP
+-- AUTO FARM LOOP
 --========================================================
 task.spawn(function()
-	while task.wait(1) do
-		if not autoFarmPacksEnabled then continue end
+	local cachedPlot = nil
 
+	while task.wait(1) do
+		if not autoFarmPacksEnabled then
+			cachedPlot = nil
+			continue
+		end
+
+		-- Detect plot ONCE
+		if not cachedPlot then
+			cachedPlot = getPlayerPlot()
+			if not cachedPlot then
+				warn("[AutoFarm] Plot not detected yet, retrying...")
+				continue
+			end
+		end
+
+		-- Loop through selected packs
 		for packName, isEnabled in pairs(selectedPacks) do
 			if not autoFarmPacksEnabled then break end
 			if isEnabled then
-				buyPack(packName)
-				task.wait(0.3) -- spacing to avoid spam / kick
+				-- Find all packs in workspace.Client.Packs
+				for _, packModel in ipairs(workspace.Client.Packs:GetChildren()) do
+					-- Must belong to this plot
+					if packModel.Name:sub(-2) == "-" .. tostring(cachedPlot) then
+						-- Check pack toggle matches pack name
+						if packModel:FindFirstChild(packName) then
+							-- Check mutation filters
+							if mutationPasses(packModel) then
+								-- Fire remote to buy pack
+								CardRemote:FireServer("BuyPack", packModel.Name)
+								print("[AutoFarm] Bought pack:", packModel.Name)
+								task.wait(0.2) -- spacing to avoid spam/kick
+							end
+						end
+					end
+				end
 			end
 		end
 	end
 end)
+
+
+
+
+--========================================================
+-- MUTATION FILTERS TAB
+--========================================================
+local MutationTab = Window:CreateTab("Mutation Filters", 4483362458)
+MutationTab:CreateSection("Allowed Mutations")
+
+local mutationFilters = {
+	Gold = false,
+	Emerald = false,
+	Void = false,
+	Diamond = false,
+	Rainbow = false
+}
+
+for mutation, _ in pairs(mutationFilters) do
+	MutationTab:CreateToggle({
+		Name = mutation,
+		CurrentValue = false,
+		Flag = "Mutation_" .. mutation,
+		Callback = function(v)
+			mutationFilters[mutation] = v
+		end
+	})
+end
+
 
 --========================================================
 -- AUTO GRADING TAB (FIXED DROPDOWN CALLBACK)
@@ -584,4 +688,186 @@ task.spawn(function()
 	end
 end)
 
+--========================================================
+-- MISC TAB (SERVER HOP ONCE)
+--========================================================
 
+-- Reuse window safely
+
+
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+local PLACE_ID = game.PlaceId
+
+local function hopServerOnce()
+	local servers = {}
+	local cursor = nil
+
+	repeat
+		local url =
+			"https://games.roblox.com/v1/games/" .. PLACE_ID ..
+			"/servers/Public?sortOrder=Asc&limit=100" ..
+			(cursor and "&cursor=" .. cursor or "")
+
+		local success, response = pcall(function()
+			return game:HttpGet(url)
+		end)
+
+		if not success then break end
+
+		local data = HttpService:JSONDecode(response)
+
+		for _, server in ipairs(data.data or {}) do
+			if server.id ~= game.JobId and server.playing < server.maxPlayers then
+				table.insert(servers, server.id)
+			end
+		end
+
+		cursor = data.nextPageCursor
+	until cursor == nil or #servers > 0
+
+	if #servers > 0 then
+		TeleportService:TeleportToPlaceInstance(
+			PLACE_ID,
+			servers[math.random(#servers)],
+			player
+		)
+	else
+		Rayfield:Notify({
+			Title = "Server Hop",
+			Content = "No available servers found.",
+			Duration = 4
+		})
+	end
+end
+
+MiscTab:CreateButton({
+	Name = "Hop Server Once",
+	Callback = function()
+		hopServerOnce()
+	end
+})
+
+--========================================================
+-- INFINITE YIELD BUTTON
+--========================================================
+
+MiscTab:CreateButton({
+	Name = "Infinite Yield",
+	Callback = function()
+		loadstring(game:HttpGet(
+			"https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"
+		))()
+	end
+})
+
+--========================================================
+-- WEATHER EVENT SERVER HOP
+--========================================================
+
+local TeleportService = game:GetService("TeleportService")
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+
+local player = Players.LocalPlayer
+local weatherHopEnabled = false
+local weatherHopCooldown = false
+
+MiscTab:CreateToggle({
+	Name = "Weather Event Server Hop",
+	CurrentValue = false,
+	Flag = "WeatherEventHop",
+	Callback = function(Value)
+		weatherHopEnabled = Value
+	end
+})
+
+-- Simple server hop (new server, same place)
+local function hopServer()
+	if weatherHopCooldown then return end
+	weatherHopCooldown = true
+
+	task.delay(5, function()
+		weatherHopCooldown = false
+	end)
+
+	TeleportService:Teleport(game.PlaceId, player)
+end
+
+-- Weather check loop
+task.spawn(function()
+	while task.wait(3) do
+		if not weatherHopEnabled then
+			continue
+		end
+
+		local weatherFolder = workspace:FindFirstChild("VFX")
+			and workspace.VFX:FindFirstChild("Weather")
+
+		-- No weather folder → hop
+		if not weatherFolder then
+			hopServer()
+			continue
+		end
+
+		local children = weatherFolder:GetChildren()
+
+		-- Empty folder → hop
+		if #children == 0 then
+			hopServer()
+			continue
+		end
+
+		-- Only Rain present → hop
+		if #children == 1 and children[1].Name == "Rain" then
+			hopServer()
+			continue
+		end
+
+		-- Any other weather → stay
+	end
+end)
+
+
+--========================================================
+-- STREAMSAVER TAB
+--========================================================
+--[[
+local StreamSaverTab = Window:CreateTab("StreamSaver", 4483362458)
+StreamSaverTab:CreateSection("Display Tools")
+
+StreamSaverTab:CreateButton({
+	Name = "Set All Plots Display Text",
+	Callback = function()
+		local plotsFolder = workspace:FindFirstChild("Plots")
+		if not plotsFolder then
+			warn("[StreamSaver] Plots folder not found")
+			return
+		end
+
+		for i = 1, 6 do
+			local plot = plotsFolder:FindFirstChild(tostring(i))
+			if plot then
+				local display =
+					plot:FindFirstChild("Map")
+					and plot.Map:FindFirstChild("Display")
+					and plot.Map.Display:FindFirstChild("Top")
+					and plot.Map.Display.Top:FindFirstChild("Gui")
+					and plot.Map.Display.Top.Gui:FindFirstChild("Display")
+					and plot.Map.Display.Top.Gui.Display:FindFirstChild("Display")
+
+				if display and (display:IsA("TextLabel") or display:IsA("TextBox")) then
+					display.Text = "DurDomHub's Collection"
+				else
+					warn("[StreamSaver] Display not found for plot " .. i)
+				end
+			else
+				warn("[StreamSaver] Plot " .. i .. " not found")
+			end
+		end
+	end
+})
+]]
