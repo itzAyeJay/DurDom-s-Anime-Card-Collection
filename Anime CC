@@ -248,7 +248,7 @@ end)
 
 
 --========================================================
--- AUTO FARMING TAB (WORKING)
+-- AUTO FARMING TAB (FIXED RESTORE)
 --========================================================
 local AutoFarmTab = Window:CreateTab("Auto Farming", 4483362458)
 AutoFarmTab:CreateSection("Pack Automation")
@@ -308,15 +308,6 @@ AutoFarmTab:CreateToggle({
 	end
 })
 
-task.delay(1, function()
-    local flag = Rayfield.Flags["AutoFarmPacks"]
-    if flag and flag.CurrentValue ~= nil then
-        autoFarmPacksEnabled = flag.CurrentValue
-        print("[AutoFarm] Restored Auto Farm:", autoFarmPacksEnabled)
-    end
-end)
-
-
 --========================================================
 -- PACK FILTER TOGGLES
 --========================================================
@@ -329,104 +320,17 @@ if packsFolder then
 		if pack:IsA("Model") then
 			selectedPacks[pack.Name] = false
 
-AutoFarmTab:CreateToggle({
-    Name = pack.Name,
-    CurrentValue = false,
-    Flag = "Pack_" .. pack.Name,
-    Callback = function(v)
-        selectedPacks[pack.Name] = v
-    end
-})
-
-		end
-	end
-end
-
-task.delay(1, function()
-    for packName, _ in pairs(selectedPacks) do
-        local flag = Rayfield.Flags["Pack_" .. packName]
-        if flag and flag.CurrentValue ~= nil then
-            selectedPacks[packName] = flag.CurrentValue
-            print("[AutoFarm] Restored pack:", packName, flag.CurrentValue)
-        end
-    end
-end)
-
-
---========================================================
--- MUTATION CHECK
---========================================================
-local function mutationPasses(packModel)
-	-- No mutation filters → allow all
-	if not (_G.Gold or _G.Emerald or _G.Void or _G.Diamond or _G.Rainbow) then
-		return true
-	end
-
-	for mutationName, toggle in pairs({
-		Gold = _G.Gold,
-		Emerald = _G.Emerald,
-		Void = _G.Void,
-		Diamond = _G.Diamond,
-		Rainbow = _G.Rainbow
-	}) do
-		if toggle and packModel:FindFirstChild(mutationName) then
-			return true
-		end
-	end
-
-	return false
-end
-
-
-
---========================================================
--- AUTO FARM LOOP
---========================================================
-task.spawn(function()
-	local cachedPlot = nil
-
-	while task.wait(1) do
-		if not autoFarmPacksEnabled then
-			cachedPlot = nil
-			continue
-		end
-
-		-- Detect plot ONCE
-		if not cachedPlot then
-			cachedPlot = getPlayerPlot()
-			if not cachedPlot then
-				warn("[AutoFarm] Plot not detected yet, retrying...")
-				continue
-			end
-		end
-
-		-- Loop through selected packs
-		for packName, isEnabled in pairs(selectedPacks) do
-			if not autoFarmPacksEnabled then break end
-			if isEnabled then
-				-- Find all packs in workspace.Client.Packs
-				for _, packModel in ipairs(workspace.Client.Packs:GetChildren()) do
-					-- Must belong to this plot
-					if packModel.Name:sub(-2) == "-" .. tostring(cachedPlot) then
-						-- Check pack toggle matches pack name
-						if packModel:FindFirstChild(packName) then
-							-- Check mutation filters
-							if mutationPasses(packModel) then
-								-- Fire remote to buy pack
-								CardRemote:FireServer("BuyPack", packModel.Name)
-								print("[AutoFarm] Bought pack:", packModel.Name)
-								task.wait(0.2) -- spacing to avoid spam/kick
-							end
-						end
-					end
+			AutoFarmTab:CreateToggle({
+				Name = pack.Name,
+				CurrentValue = false,
+				Flag = "Pack_" .. pack.Name,
+				Callback = function(v)
+					selectedPacks[pack.Name] = v
 				end
-			end
+			})
 		end
 	end
-end)
-
-
-
+end
 
 --========================================================
 -- MUTATION FILTERS TAB
@@ -442,7 +346,6 @@ local mutationFilters = {
 	Rainbow = false
 }
 
--- Create toggles first
 for mutation, _ in pairs(mutationFilters) do
     MutationTab:CreateToggle({
         Name = mutation,
@@ -454,45 +357,39 @@ for mutation, _ in pairs(mutationFilters) do
     })
 end
 
--- Restore Auto Farm toggle
+--========================================================
+-- RESTORE ALL TOGGLES AFTER THEY EXIST
+--========================================================
 task.defer(function()
-    local flag = Rayfield.Flags["AutoFarmPacks"]
-    if flag and flag.CurrentValue ~= nil then
-        autoFarmPacksEnabled = flag.CurrentValue
-        flag:Set(flag.CurrentValue)
-        print("[AutoFarm] Restored Auto Farm:", autoFarmPacksEnabled)
-    end
+	-- Restore Auto Farm toggle
+	local autoFlag = Rayfield.Flags["AutoFarmPacks"]
+	if autoFlag and autoFlag.CurrentValue ~= nil then
+		autoFarmPacksEnabled = autoFlag.CurrentValue
+		autoFlag:Set(autoFlag.CurrentValue)
+		print("[AutoFarm] Restored Auto Farm:", autoFarmPacksEnabled)
+	end
+
+	-- Restore Pack toggles
+	for packName, _ in pairs(selectedPacks) do
+		local packFlag = Rayfield.Flags["Pack_" .. packName]
+		if packFlag and packFlag.CurrentValue ~= nil then
+			selectedPacks[packName] = packFlag.CurrentValue
+			packFlag:Set(packFlag.CurrentValue)
+			print("[AutoFarm] Restored pack:", packName, packFlag.CurrentValue)
+		end
+	end
+
+	-- Restore Mutation toggles
+	for mutation, _ in pairs(mutationFilters) do
+		local mutFlag = Rayfield.Flags["Mutation_" .. mutation]
+		if mutFlag and mutFlag.CurrentValue ~= nil then
+			mutationFilters[mutation] = mutFlag.CurrentValue
+			mutFlag:Set(mutFlag.CurrentValue)
+			print("[Mutation] Restored", mutation, mutFlag.CurrentValue)
+		end
+	end
 end)
 
--- Restore pack toggles
-task.defer(function()
-    for packName, _ in pairs(selectedPacks) do
-        local flag = Rayfield.Flags["Pack_" .. packName]
-        if flag and flag.CurrentValue ~= nil then
-            selectedPacks[packName] = flag.CurrentValue
-            flag:Set(flag.CurrentValue)
-            print("[AutoFarm] Restored pack:", packName, flag.CurrentValue)
-        end
-    end
-end)
-
--- Restore mutation toggles
-task.defer(function()
-    for mutation, _ in pairs(mutationFilters) do
-        local flag = Rayfield.Flags["Mutation_" .. mutation]
-        if flag and flag.CurrentValue ~= nil then
-            mutationFilters[mutation] = flag.CurrentValue
-            flag:Set(flag.CurrentValue)
-            print("[Mutation] Restored", mutation, flag.CurrentValue)
-        end
-    end
-end)
-
-task.defer(function()
-    if autoFarmPacksEnabled then
-        print("[AutoFarm] Auto Farm restarting after teleport...")
-    end
-end)
 
 
 
@@ -937,3 +834,4 @@ StreamSaverTab:CreateButton({
 	end
 })
 ]]
+-- UPDATE
