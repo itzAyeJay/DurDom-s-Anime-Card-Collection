@@ -8,6 +8,8 @@ local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 --========================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -415,5 +417,171 @@ task.spawn(function()
 		GradeRemote:FireServer(unpack(args))
 	end
 end)
--- updated
+
+--========================================================
+-- MISC TAB
+--========================================================
+local MiscTab = Window:CreateTab("Misc", 4483362458)
+MiscTab:CreateSection("Anti AFK Patrol")
+
+local antiAfkPatrolEnabled = false
+
+MiscTab:CreateToggle({
+	Name = "Anti AFK Patrol Walk",
+	CurrentValue = false,
+	Flag = "AntiAfkPatrolWalk",
+	Callback = function(Value)
+		antiAfkPatrolEnabled = Value
+	end
+})
+
+-- Patrol points
+local PATROL_POINTS = {
+	Vector3.new(-535, 8, -398),
+	Vector3.new(-535, 8, -228),
+	Vector3.new(-534, 8, -49),
+	Vector3.new(-470, 8, -12)
+}
+
+local STRAY_DISTANCE = 35
+
+local function getClosestPointIndex(pos)
+	local closestIndex = 1
+	local closestDistance = math.huge
+
+	for i, point in ipairs(PATROL_POINTS) do
+		local dist = (pos - point).Magnitude
+		if dist < closestDistance then
+			closestDistance = dist
+			closestIndex = i
+		end
+	end
+
+	return closestIndex
+end
+
+--========================================================
+-- ANTI-AFK PATROL LOOP (FINAL LOGIC)
+--========================================================
+task.spawn(function()
+	local index = 1
+	local direction = 1
+	local initialized = false
+
+	while task.wait(0.25) do
+		if not antiAfkPatrolEnabled then
+			initialized = false
+			continue
+		end
+
+		if not humanoid or not root then
+			continue
+		end
+
+		-- First enable: snap to closest point
+		if not initialized then
+			index = getClosestPointIndex(root.Position)
+			initialized = true
+		end
+
+		local target = PATROL_POINTS[index]
+
+		-- Walk to target
+		humanoid:MoveTo(target)
+
+		-- Wait until close OR timeout
+		local timeout = tick() + 6
+		while tick() < timeout do
+			if not antiAfkPatrolEnabled then break end
+			if (root.Position - target).Magnitude <= 3 then
+				break
+			end
+			task.wait(0.1)
+		end
+
+		-- === ALWAYS ADVANCE TO NEXT POINT ===
+		index += direction
+
+		-- Reverse at ends (ping-pong patrol)
+		if index > #PATROL_POINTS then
+			index = #PATROL_POINTS - 1
+			direction = -1
+		elseif index < 1 then
+			index = 2
+			direction = 1
+		end
+	end
+end)
+
+-- SERVER HOPPING
+local merchantHopEnabled = false
+local hopping = false
+
+MiscTab:CreateToggle({
+	Name = "Server Hop Until Merchant",
+	CurrentValue = false,
+	Flag = "MerchantServerHop",
+	Callback = function(Value)
+		merchantHopEnabled = Value
+	end
+})
+
+local PLACE_ID = 76285745979410
+local visitedServers = {}
+
+local function merchantExists()
+	local folder =
+		workspace:FindFirstChild("Items")
+		and workspace.Items:FindFirstChild("Merchant")
+		and workspace.Items.Merchant:FindFirstChild("Client")
+
+	return folder and #folder:GetChildren() > 0
+end
+
+local function hopServer()
+	if hopping then return end
+	hopping = true
+
+	local success, response = pcall(function()
+		return HttpService:JSONDecode(
+			game:HttpGet(
+				"https://games.roblox.com/v1/games/" .. PLACE_ID .. "/servers/Public?sortOrder=Asc&limit=100"
+			)
+		)
+	end)
+
+	if success and response and response.data then
+		for _, server in ipairs(response.data) do
+			if server.playing < server.maxPlayers and not visitedServers[server.id] then
+				visitedServers[server.id] = true
+				TeleportService:TeleportToPlaceInstance(PLACE_ID, server.id, player)
+				return
+			end
+		end
+	end
+
+	hopping = false
+end
+
+--========================================================
+-- SERVER HOP LOOP
+--========================================================
+task.spawn(function()
+	while task.wait(5) do
+		if not merchantHopEnabled then
+			hopping = false
+			continue
+		end
+
+		if merchantExists() then
+			-- Merchant found, stay in server
+			hopping = false
+			continue
+		end
+
+		-- Merchant not found → hop
+		hopServer()
+	end
+end)
+
 
