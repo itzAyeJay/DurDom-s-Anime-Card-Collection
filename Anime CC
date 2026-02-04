@@ -442,26 +442,30 @@ local mutationFilters = {
 	Rainbow = false
 }
 
+-- Create toggles first
 for mutation, _ in pairs(mutationFilters) do
-	MutationTab:CreateToggle({
-		Name = mutation,
-		CurrentValue = false,
-		Flag = "Mutation_" .. mutation,
-		Callback = function(v)
-			mutationFilters[mutation] = v
-		end
-	})
+    MutationTab:CreateToggle({
+        Name = mutation,
+        CurrentValue = false,
+        Flag = "Mutation_" .. mutation,
+        Callback = function(v)
+            mutationFilters[mutation] = v
+        end
+    })
 end
 
-task.delay(1, function()
+-- Restore saved toggle states AFTER all toggles are created and Rayfield initialized
+task.defer(function()
     for mutation, _ in pairs(mutationFilters) do
         local flag = Rayfield.Flags["Mutation_" .. mutation]
         if flag and flag.CurrentValue ~= nil then
             mutationFilters[mutation] = flag.CurrentValue
+            flag:Set(flag.CurrentValue) -- make sure the toggle itself updates visually
             print("[Mutation] Restored", mutation, flag.CurrentValue)
         end
     end
 end)
+
 
 --========================================================
 -- AUTO GRADING TAB (FIXED DROPDOWN CALLBACK)
