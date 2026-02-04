@@ -33,11 +33,6 @@ local Window = Rayfield:CreateWindow({
 	KeySystem = false
 })
 
-local function getFlag(flagName)
-    return Rayfield.Flags[flagName] and Rayfield.Flags[flagName].CurrentValue
-end
-
-
 --========================================================
 -- PLAYER TAB
 --========================================================
@@ -258,7 +253,6 @@ end)
 local AutoFarmTab = Window:CreateTab("Auto Farming", 4483362458)
 AutoFarmTab:CreateSection("Pack Automation")
 
-
 -- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -310,19 +304,18 @@ AutoFarmTab:CreateToggle({
 	CurrentValue = false,
 	Flag = "AutoFarmPacks",
 	Callback = function(v)
-    selectedPacks[pack.Name] = v
-end
-
+		autoFarmPacksEnabled = v
+	end
 })
 
--- Restore Auto Farm toggle state on rejoin
 task.delay(1, function()
-    local saved = getFlag("AutoFarmPacks")
-    if saved ~= nil then
-        autoFarmPacksEnabled = saved
-        print("[AutoFarm] Restored Auto Farm:", saved)
+    local flag = Rayfield.Flags["AutoFarmPacks"]
+    if flag and flag.CurrentValue ~= nil then
+        autoFarmPacksEnabled = flag.CurrentValue
+        print("[AutoFarm] Restored Auto Farm:", autoFarmPacksEnabled)
     end
 end)
+
 
 --========================================================
 -- PACK FILTER TOGGLES
@@ -336,16 +329,29 @@ if packsFolder then
 		if pack:IsA("Model") then
 			selectedPacks[pack.Name] = false
 
-			AutoFarmTab:CreateToggle({
-				Name = pack.Name,
-				CurrentValue = false,
-				Callback = function(v)
-					selectedPacks[pack.Name] = v
-				end
-			})
+AutoFarmTab:CreateToggle({
+    Name = pack.Name,
+    CurrentValue = false,
+    Flag = "Pack_" .. pack.Name,
+    Callback = function(v)
+        selectedPacks[pack.Name] = v
+    end
+})
+
 		end
 	end
 end
+
+task.delay(1, function()
+    for packName, _ in pairs(selectedPacks) do
+        local flag = Rayfield.Flags["Pack_" .. packName]
+        if flag and flag.CurrentValue ~= nil then
+            selectedPacks[packName] = flag.CurrentValue
+            print("[AutoFarm] Restored pack:", packName, flag.CurrentValue)
+        end
+    end
+end)
+
 
 --========================================================
 -- MUTATION CHECK
@@ -371,75 +377,56 @@ local function mutationPasses(packModel)
 	return false
 end
 
+
+
 --========================================================
--- AUTO FARM LOOP (FIXED & GUARDED)
+-- AUTO FARM LOOP
 --========================================================
 task.spawn(function()
-    local cachedPlot = nil
+	local cachedPlot = nil
 
-    while task.wait(1) do
-        -- Auto farm OFF → reset and wait
-        if not autoFarmPacksEnabled then
-            cachedPlot = nil
-            continue
-        end
+	while task.wait(1) do
+		if not autoFarmPacksEnabled then
+			cachedPlot = nil
+			continue
+		end
 
-        -- Detect plot ONCE per enable
-        if not cachedPlot then
-            cachedPlot = getPlayerPlot()
-            if not cachedPlot then
-                warn("[AutoFarm] Plot not detected yet, retrying...")
-                continue
-            end
-        end
+		-- Detect plot ONCE
+		if not cachedPlot then
+			cachedPlot = getPlayerPlot()
+			if not cachedPlot then
+				warn("[AutoFarm] Plot not detected yet, retrying...")
+				continue
+			end
+		end
 
-        -- Loop through enabled pack toggles
-        for packName, isEnabled in pairs(selectedPacks) do
-            if not autoFarmPacksEnabled then break end
-
-            -- 🔐 CRITICAL RAYFIELD GUARD (FIXES NIL .Name ERROR)
-            if typeof(packName) ~= "string" or packName == "" then
-                continue
-            end
-
-            if isEnabled ~= true then
-                continue
-            end
-
-            local clientFolder = workspace:FindFirstChild("Client")
-            local packsFolder = clientFolder and clientFolder:FindFirstChild("Packs")
-
-            if not packsFolder then
-                continue
-            end
-
-            for _, packModel in ipairs(packsFolder:GetChildren()) do
-                if not packModel or not packModel:IsA("Model") then
-                    continue
-                end
-
-                if typeof(packModel.Name) ~= "string" then
-                    continue
-                end
-
-                -- Must belong to this plot
-                if packModel.Name:sub(-2) ~= "-" .. tostring(cachedPlot) then
-                    continue
-                end
-
-                -- Pack name filter
-                if packModel:FindFirstChild(packName) then
-                    -- Mutation filter
-                    if mutationPasses(packModel) then
-                        CardRemote:FireServer("BuyPack", packModel.Name)
-                        print("[AutoFarm] Bought pack:", packModel.Name)
-                        task.wait(0.2)
-                    end
-                end
-            end
-        end
-    end
+		-- Loop through selected packs
+		for packName, isEnabled in pairs(selectedPacks) do
+			if not autoFarmPacksEnabled then break end
+			if isEnabled then
+				-- Find all packs in workspace.Client.Packs
+				for _, packModel in ipairs(workspace.Client.Packs:GetChildren()) do
+					-- Must belong to this plot
+					if packModel.Name:sub(-2) == "-" .. tostring(cachedPlot) then
+						-- Check pack toggle matches pack name
+						if packModel:FindFirstChild(packName) then
+							-- Check mutation filters
+							if mutationPasses(packModel) then
+								-- Fire remote to buy pack
+								CardRemote:FireServer("BuyPack", packModel.Name)
+								print("[AutoFarm] Bought pack:", packModel.Name)
+								task.wait(0.2) -- spacing to avoid spam/kick
+							end
+						end
+					end
+				end
+			end
+		end
+	end
 end)
+
+
+
 
 --========================================================
 -- MUTATION FILTERS TAB
@@ -456,26 +443,25 @@ local mutationFilters = {
 }
 
 for mutation, _ in pairs(mutationFilters) do
-    MutationTab:CreateToggle({
-        Name = mutation,
-        CurrentValue = false,
-        Flag = "Mutation_" .. mutation,
-        Callback = function(v)
-            mutationFilters[mutation] = v
-        end
-    })
-
-    -- Restore saved mutation toggle
-    task.delay(1, function()
-        local saved = getFlag("Mutation_" .. mutation)
-        if saved ~= nil then
-            mutationFilters[mutation] = saved
-            print("[Mutation] Restored", mutation, saved)
-        end
-    end)
+	MutationTab:CreateToggle({
+		Name = mutation,
+		CurrentValue = false,
+		Flag = "Mutation_" .. mutation,
+		Callback = function(v)
+			mutationFilters[mutation] = v
+		end
+	})
 end
 
-
+task.delay(1, function()
+    for mutation, _ in pairs(mutationFilters) do
+        local flag = Rayfield.Flags["Mutation_" .. mutation]
+        if flag and flag.CurrentValue ~= nil then
+            mutationFilters[mutation] = flag.CurrentValue
+            print("[Mutation] Restored", mutation, flag.CurrentValue)
+        end
+    end
+end)
 
 --========================================================
 -- AUTO GRADING TAB (FIXED DROPDOWN CALLBACK)
