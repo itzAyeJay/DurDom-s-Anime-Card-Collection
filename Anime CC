@@ -309,13 +309,12 @@ AutoFarmTab:CreateToggle({
 })
 
 task.delay(1, function()
-    local flag = Rayfield.Flags["AutoFarmPacks"]
-    if flag and flag.CurrentValue ~= nil then
-        autoFarmPacksEnabled = flag.CurrentValue
-        print("[AutoFarm] Restored Auto Farm:", autoFarmPacksEnabled)
-    end
+	local flag = Rayfield.Flags["AutoFarmPacks"]
+	if flag and flag.CurrentValue ~= nil then
+		autoFarmPacksEnabled = flag.CurrentValue
+		print("[AutoFarm] Restored Auto Farm:", autoFarmPacksEnabled)
+	end
 end)
-
 
 --========================================================
 -- PACK FILTER TOGGLES
@@ -329,29 +328,39 @@ if packsFolder then
 		if pack:IsA("Model") then
 			selectedPacks[pack.Name] = false
 
-AutoFarmTab:CreateToggle({
-    Name = pack.Name,
-    CurrentValue = false,
-    Flag = "Pack_" .. pack.Name,
-    Callback = function(v)
-        selectedPacks[pack.Name] = v
-    end
-})
-
+			AutoFarmTab:CreateToggle({
+				Name = pack.Name,
+				CurrentValue = false,
+				Flag = "Pack_" .. pack.Name,
+				Callback = function(v)
+					selectedPacks[pack.Name] = v
+				end
+			})
 		end
 	end
 end
 
-task.delay(1, function()
-    for packName, _ in pairs(selectedPacks) do
-        local flag = Rayfield.Flags["Pack_" .. packName]
-        if flag and flag.CurrentValue ~= nil then
-            selectedPacks[packName] = flag.CurrentValue
-            print("[AutoFarm] Restored pack:", packName, flag.CurrentValue)
-        end
-    end
+task.spawn(function()
+	task.wait(2)
+	for packName, _ in pairs(selectedPacks) do
+		local flag = Rayfield.Flags["Pack_" .. packName]
+		if flag and typeof(flag.CurrentValue) == "boolean" then
+			selectedPacks[packName] = flag.CurrentValue
+			print("[AutoFarm] Restored pack:", packName, flag.CurrentValue)
+		end
+	end
 end)
 
+--========================================================
+-- 🔧 MOVED HERE (ORDER FIX ONLY)
+--========================================================
+local mutationFilters = mutationFilters or {
+	Gold = false,
+	Emerald = false,
+	Void = false,
+	Diamond = false,
+	Rainbow = false
+}
 
 local MUTATION_NAMES = {
 	"Gold",
@@ -361,11 +370,15 @@ local MUTATION_NAMES = {
 	"Rainbow"
 }
 
-
 --========================================================
 -- MUTATION CHECK
 --========================================================
 local function mutationPasses(packModel)
+	-- Safety checks
+	if not mutationFilters or not MUTATION_NAMES then
+		return true
+	end
+
 	-- Check if pack has any mutation
 	local hasMutation = false
 	for _, mutation in ipairs(MUTATION_NAMES) do
@@ -385,13 +398,11 @@ local function mutationPasses(packModel)
 	end
 
 	-- CASE 1: No mutation filters selected
-	-- Only allow NON-mutated packs
 	if not anyFilterEnabled then
 		return not hasMutation
 	end
 
 	-- CASE 2: Mutation filters selected
-	-- Allow only matching mutations
 	for mutation, enabled in pairs(mutationFilters) do
 		if enabled and packModel:FindFirstChild(mutation) then
 			return true
@@ -400,8 +411,6 @@ local function mutationPasses(packModel)
 
 	return false
 end
-
-
 
 --========================================================
 -- AUTO FARM LOOP
@@ -415,7 +424,6 @@ task.spawn(function()
 			continue
 		end
 
-		-- Detect plot ONCE
 		if not cachedPlot then
 			cachedPlot = getPlayerPlot()
 			if not cachedPlot then
@@ -424,22 +432,16 @@ task.spawn(function()
 			end
 		end
 
-		-- Loop through selected packs
 		for packName, isEnabled in pairs(selectedPacks) do
 			if not autoFarmPacksEnabled then break end
 			if isEnabled then
-				-- Find all packs in workspace.Client.Packs
 				for _, packModel in ipairs(workspace.Client.Packs:GetChildren()) do
-					-- Must belong to this plot
 					if packModel.Name:sub(-2) == "-" .. tostring(cachedPlot) then
-						-- Check pack toggle matches pack name
 						if packModel:FindFirstChild(packName) then
-							-- Check mutation filters
 							if mutationPasses(packModel) then
-								-- Fire remote to buy pack
 								CardRemote:FireServer("BuyPack", packModel.Name)
 								print("[AutoFarm] Bought pack:", packModel.Name)
-								task.wait(0.2) -- spacing to avoid spam/kick
+								task.wait(0.2)
 							end
 						end
 					end
@@ -449,22 +451,11 @@ task.spawn(function()
 	end
 end)
 
-
-
-
 --========================================================
 -- MUTATION FILTERS TAB
 --========================================================
 local MutationTab = Window:CreateTab("Mutation Filters", 4483362458)
 MutationTab:CreateSection("Allowed Mutations")
-
-local mutationFilters = {
-	Gold = false,
-	Emerald = false,
-	Void = false,
-	Diamond = false,
-	Rainbow = false
-}
 
 local MUTATION_ORDER = {
 	"Gold",
@@ -485,15 +476,18 @@ for _, mutation in ipairs(MUTATION_ORDER) do
 	})
 end
 
-task.delay(1, function()
+task.spawn(function()
+	task.wait(2)
 	for _, mutation in ipairs(MUTATION_ORDER) do
 		local flag = Rayfield.Flags["Mutation_" .. mutation]
-		if flag and flag.CurrentValue ~= nil then
+		if flag and typeof(flag.CurrentValue) == "boolean" then
 			mutationFilters[mutation] = flag.CurrentValue
 			print("[Mutation] Restored", mutation, flag.CurrentValue)
 		end
 	end
 end)
+
+
 
 
 --========================================================
