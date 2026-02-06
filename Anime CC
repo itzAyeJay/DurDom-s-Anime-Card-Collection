@@ -764,4 +764,4 @@ StreamSaverTab:CreateButton({
 			end
 		end
 	end
-})
+}) -- Updated 1.2
